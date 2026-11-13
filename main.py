@@ -7,6 +7,7 @@
 
 import io
 import re
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -34,6 +35,7 @@ C_RATE = "이용률"
 C_TOTAL = "집계행"
 
 DOWNLOAD_NAME = "스마트폰_이용행태_조사_2025_전처리결과.csv"
+DEFAULT_CSV = "스마트폰_이용행태_조사_2025_전처리완료.csv"  # main.py와 같은 폴더에 둘 기본 데이터 파일
 
 
 def _version():
@@ -45,6 +47,26 @@ def _version():
 
 
 NEW_API = _version() >= (1, 50)
+
+
+# ------------------------------------------------------------------
+# 기본 데이터 파일 찾기
+# ------------------------------------------------------------------
+def find_default_csv():
+    """main.py와 같은 폴더의 기본 CSV를 찾는다. 이름이 조금 달라도 폴더 안의 CSV를 찾아 쓴다."""
+    try:
+        folders = [Path(__file__).resolve().parent, Path.cwd()]
+    except NameError:
+        folders = [Path.cwd()]
+    for folder in folders:
+        p = folder / DEFAULT_CSV
+        if p.exists():
+            return p
+    for folder in folders:
+        cands = sorted(folder.glob("*.csv"))
+        if cands:
+            return cands[0]
+    return None
 
 
 # ------------------------------------------------------------------
@@ -815,24 +837,6 @@ def render_download(ctx):
 # ------------------------------------------------------------------
 # 시작 화면 · 사이드바
 # ------------------------------------------------------------------
-def show_intro():
-    st.info("왼쪽 사이드바에서 **CSV 파일을 업로드**하면 자동으로 분석이 시작됩니다.")
-    st.markdown(
-        """
-### 이 앱으로 할 수 있는 일
-1. **데이터 확인** : 행·열 개수, 열 이름, 데이터 유형, 결측치, 중복 데이터를 확인하고 자동으로 정리합니다.
-2. **탐구 질문 1** : 연령대별 하루 평균 스마트폰 이용 시간의 차이를 막대그래프로 비교합니다.
-3. **탐구 질문 2** : 이용 시간 구간별 비율과 평균 이용 시간의 관계를 산점도·막대그래프로 분석합니다.
-4. **내려받기** : 전처리가 끝난 데이터를 CSV로 저장합니다.
-
-### 이런 파일을 기대합니다
-- 집단 이름 열(예: `구분1`, `구분2`), 평균 이용시간 열(예: `평균이용시간 (분)`),
-  '1시간 미만', '1-2시간 미만'처럼 **이용 시간 구간별 비율(%) 열**이 들어 있는 CSV
-- 한글 인코딩(UTF-8, CP949 등)은 자동으로 인식합니다.
-"""
-    )
-
-
 def idx_of(options, value, default=0):
     try:
         return options.index(value)
@@ -887,19 +891,31 @@ def validate_selection(clean0, sel):
 # ------------------------------------------------------------------
 def main():
     st.title("스마트폰 이용행태 조사 2025 데이터 분석")
-    st.caption("CSV 파일을 올리면 데이터를 정리하고, 두 가지 탐구 질문에 대한 그래프와 해석을 자동으로 만들어 줍니다.")
+    st.caption("스마트폰 이용행태 조사 자료를 자동으로 정리하고, 두 가지 탐구 질문에 대한 그래프와 해석을 보여 줍니다.")
 
-    uploaded = st.sidebar.file_uploader("CSV 파일 업로드", type=["csv"])
-    st.sidebar.caption("예: 스마트폰_이용행태_조사_2025_전처리완료.csv")
+    uploaded = st.sidebar.file_uploader("다른 CSV로 분석하려면 업로드 (선택)", type=["csv"])
+    default_path = find_default_csv()
 
-    if uploaded is None:
-        show_intro()
+    if uploaded is not None:
+        data, source = uploaded.getvalue(), f"업로드한 파일: {uploaded.name}"
+    elif default_path is not None:
+        try:
+            data, source = default_path.read_bytes(), f"기본 데이터: {default_path.name}"
+        except Exception as e:  # noqa: BLE001
+            st.error(f"기본 데이터 파일을 읽지 못했습니다. ({e})")
+            return
+    else:
+        st.error(
+            f"기본 데이터 파일(`{DEFAULT_CSV}`)을 찾지 못했습니다. "
+            "이 파일을 main.py와 같은 폴더에 넣거나, 왼쪽 사이드바에서 CSV를 업로드해 주세요."
+        )
         return
+    st.sidebar.caption(source)
 
     try:
-        raw, enc = read_csv_bytes(uploaded.getvalue())
+        raw, enc = read_csv_bytes(data)
     except pd.errors.EmptyDataError:
-        st.error("파일이 비어 있습니다. 내용이 있는 CSV 파일을 올려 주세요.")
+        st.error("파일이 비어 있습니다. 내용이 있는 CSV 파일을 확인해 주세요.")
         return
     except Exception as e:  # noqa: BLE001
         st.error(f"파일을 읽는 중 문제가 생겼습니다. CSV 형식이 맞는지 확인해 주세요. ({e})")
